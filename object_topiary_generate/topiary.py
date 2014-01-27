@@ -13,27 +13,62 @@ def generate_tree_mesh(base_obj, ref_obj, iterations=4):
           vertex + 10 * (vertex - center_of_projection).normalized())
     if index >= 0:
       return intersection_point
-    return vertex   
+    return vertex  
   
-  def do_triangle():
-    pass
+  def do_triangle(newRoot, s, p, level):
+    """
+        2
+      5   4
+    0   3   1       
+    """
+    do_recursive(newRoot, [s[0], s[3], s[5]], projected=[p[0], p[3], p[5]], level=level)
+    do_recursive(newRoot, [s[1], s[4], s[3]], projected=[p[1], p[4], p[3]], level=level)
+    do_recursive(newRoot, [s[2], s[5], s[4]], projected=[p[2], p[5], p[4]], level=level)
+    do_recursive(newRoot, [s[3], s[4], s[5]], projected=[p[3], p[4], p[5]], level=level)
     
-  def do_quad():
-    pass
+  def do_quad(newRoot, s, p, level):
+    """
+    3  6  2
+    7  8  5
+    0  4  1
+    """
+    do_recursive(newRoot, [s[0], s[4], s[8], s[7]], projected=[p[0], p[4], p[8], p[7]], level=level)
+    do_recursive(newRoot, [s[4], s[1], s[5], s[8]], projected=[p[4], p[1], p[5], p[8]], level=level)
+    do_recursive(newRoot, [s[8], s[5], s[2], s[6]], projected=[p[8], p[5], p[2], p[6]], level=level)
+    do_recursive(newRoot, [s[7], s[8], s[6], s[3]], projected=[p[7], p[8], p[6], p[3]], level=level)
     
-  def do_polygon():
-    pass
+  def do_polygon(newRoot, s, p, level):
+    """
+    3     2
+      7 6
+      4 5
+    0     1
+    """
+    nVerts = int(len(s)/2) # it should be even
+    for i in range(nVerts-1):
+      do_recursive(newRoot, [s[i], s[i+1], s[i+1+nVerts], s[i+nVerts]],
+        projected=[p[i], p[i+1], p[i+1+nVerts], p[i+nVerts]], level=level)
+    # special case
+    do_recursive(newRoot, [s[nVerts-1], s[0], s[nVerts], s[2*nVerts-1]],
+      projected=[p[nVerts-1], p[0], p[nVerts], p[2*nVerts-1]], level=level)
+    # the polygon on the center
+    do_recursive(newRoot, s[nVerts:], projected=p[nVerts:], level=level)
+  #end: do_polygon
   
-  def do_recursive(root, polygon, level, projected=None):
+  def do_recursive(root, polygon, projected=None, level=0):
   
     # if len(polygon) != 3:
     #  raise ValueError
- 
+    
     p = projected # convenience alias
  
     if p is None:
       p = [project(vert.co, root) for vert in polygon]
-    
+
+    if level <= 0:
+      return
+      #bm.faces.new(projected) # don't subdivide just draw face
+     
     nVerts = len(polygon)
     
     # find center
@@ -52,7 +87,7 @@ def generate_tree_mesh(base_obj, ref_obj, iterations=4):
       if nVerts == 4:
         p.append(project(center, newRoot))
     else:
-      p = p + [project(1/2*(p[i] + newRoot), newRoot) for i in range(nVerts)]      
+      p = p + [project(1/5 * p[i] + 4/5 * center , newRoot) for i in range(nVerts)]      
     
     # scale down
     scaled = []
@@ -62,25 +97,24 @@ def generate_tree_mesh(base_obj, ref_obj, iterations=4):
     
     t = polygon; s = scaled
     
-    bm.faces.new([t[0], s[0], s[2], t[2]])
-    bm.faces.new([t[1], s[1], s[0], t[0]])
-    bm.faces.new([t[2], s[2], s[1], t[1]])
+    for i in range(0, nVerts-1):
+      bm.faces.new([t[i+1], s[i+1], s[i], t[i]])
+    bm.faces.new([t[0], s[0], s[nVerts-1], t[nVerts-1]])
+
+    if nVerts <= 4:
+      for i in range(0, nVerts-1):
+        bm.faces.new([s[i], s[i+1], s[i+nVerts]])
+      bm.faces.new([s[nVerts-1], s[0], s[2*nVerts-1]])
+    else: # no need for additional faces
+      pass
     
-    bm.faces.new([s[0], s[1], s[3]])
-    bm.faces.new([s[1], s[2], s[4]])
-    bm.faces.new([s[2], s[0], s[5]])
-    
-    if level > 0:   
-      do_recursive(newRoot, [s[0], s[3], s[5]], level - 1, projected=[p[0], p[3], p[5]])
-      do_recursive(newRoot, [s[1], s[4], s[3]], level - 1, projected=[p[1], p[4], p[3]])
-      do_recursive(newRoot, [s[2], s[5], s[4]], level - 1, projected=[p[2], p[5], p[4]])
-      do_recursive(newRoot, [s[3], s[4], s[5]], level - 1, projected=[p[3], p[4], p[5]])
-      
-    else:  
-      bm.faces.new([s[0], s[3], s[5]])
-      bm.faces.new([s[1], s[4], s[3]])
-      bm.faces.new([s[2], s[5], s[4]])
-      bm.faces.new([s[3], s[4], s[5]]) 
+    if nVerts == 3:
+      do_triangle(newRoot, s, p, level-1)
+    elif nVerts == 4:
+      do_quad(newRoot, s, p, level-1)
+    else:
+      print(len(s), len(p))
+      do_polygon(newRoot, s, p, level-1)     
   #end: do_recursive
   
   # TODO: use center of mass
@@ -98,11 +132,10 @@ def generate_tree_mesh(base_obj, ref_obj, iterations=4):
   cache = []
   
   for face in bm.faces:
-    if len(face.verts) == 3:
-      cache.append(list(face.verts))
+    cache.append(list(face.verts))
       
   for face in cache:
-    do_recursive(root, face, iterations)
+    do_recursive(root, face, level=iterations)
   
   tree_mesh = bpy.data.meshes.new('tree_mesh')
   
